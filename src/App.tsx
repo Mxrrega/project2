@@ -3,9 +3,10 @@ import { parse, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Search, Trash2, Package, MapPin, X } from 'lucide-react';
 import axios from 'axios';
-import logo from './Images/Norisck.png'; 
+import logo from './Images/Norisck.png';
+import { Check } from 'lucide-react';
 
-type OrderStatus = 'pago' | 'agendado' | 'pre_postagem' | 'nao_pago' | 'retirar';
+type OrderStatus = 'pago' | 'agendado' | 'pre_postagem' | 'nao_pago' | 'retirar' | 'postado' | 'entregue';
 
 interface Order {
   _id: string;
@@ -20,6 +21,17 @@ interface Order {
   status: OrderStatus;
 }
 
+interface Notification {
+  orderId: string;
+  message: string;
+  read: boolean;
+}
+interface Evento {
+  descricaoEvento: string; // Descrição do evento
+  data: string;            // Data do evento (por exemplo)
+  [key: string]: any;      // Outros campos que podem existir, caso necessário
+}
+
 interface TrackingEvent {
   descricao: string;
   municipio: string;
@@ -28,8 +40,11 @@ interface TrackingEvent {
 
 function App() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [sentNotifications, setSentNotifications] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | ''>('');
+  const [searchName, setSearchName] = useState('');
   const [formData, setFormData] = useState({
     telefone: '',
     nome: '',
@@ -47,11 +62,10 @@ function App() {
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false); // Novo estado para controle de edição
 
-  // Efeito para buscar pedidos ao montar o componente
   useEffect(() => {
     const fetchOrders = async () => {
       try {
-        const response = await axios.get('http://localhost:5000/api/pedidos');
+        const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/pedidos`);
         setOrders(response.data); // Preenche o estado com os pedidos retornados
       } catch (error) {
         console.error('Erro ao buscar pedidos:', error);
@@ -59,32 +73,39 @@ function App() {
     };
 
     fetchOrders();
-  }, []); // O array vazio significa que isso será executado apenas uma vez, ao montar o componente
+  }, []);
+  const filteredOrders = orders.filter(order => {
+    const dateMatch = selectedDate ? format(parse(order.data, 'yyyy-MM-dd', new Date()), 'yyyy-MM-dd') === selectedDate : true;
+    const statusMatch = selectedStatus ? order.status === selectedStatus : true;
+    const nameMatch = order.nome.toLowerCase().includes(searchName.toLowerCase()); // Filtro por nome (case-insensitive)
+
+    return dateMatch && statusMatch && nameMatch;
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newOrder = {
-        telefone: formData.telefone,
-        nome: formData.nome,
-        cpf: formData.cpf,
-        valor: parseFloat(formData.valor),
-        unidades: formData.unidades,
-        endereco: formData.endereco,
-        codigoRastreio: formData.codigoRastreio,
-        data: formData.data,
-        status: formData.status,
+      telefone: formData.telefone,
+      nome: formData.nome,
+      cpf: formData.cpf,
+      valor: parseFloat(formData.valor),
+      unidades: formData.unidades,
+      endereco: formData.endereco,
+      codigoRastreio: formData.codigoRastreio,
+      data: formData.data,
+      status: formData.status,
     };
 
     try {
-        if (isEditing) {
-            const response = await axios.put(`http://localhost:5000/api/pedidos/${selectedOrderId}`, newOrder);
-            setOrders(orders.map(order => (order._id === selectedOrderId ? response.data : order)));
-            setIsEditing(false);
-        } else {
-            const response = await axios.post('http://localhost:5000/api/pedidos', newOrder);
-            setOrders([...orders, response.data]);
-        }
-  
+      if (isEditing) {
+        const response = await axios.put(`${import.meta.env.VITE_API_BASE_URL}/api/pedidos/${selectedOrderId}`, newOrder);
+        setOrders(orders.map(order => (order._id === selectedOrderId ? response.data : order)));
+        setIsEditing(false);
+      } else {
+        const response = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/pedidos`, newOrder);
+        setOrders([...orders, response.data]);
+      }
+
       // Reseta o formulário após o envio
       setFormData({
         telefone: '',
@@ -100,7 +121,7 @@ function App() {
     } catch (error) {
       console.error('Erro ao salvar o pedido:', error);
       alert('Erro ao salvar o pedido. Por favor, tente novamente.');
-  }
+    }
   };
 
   const handleEdit = (order: Order) => {
@@ -121,27 +142,29 @@ function App() {
 
   const handleDelete = async (id: string) => {
     const confirmDelete = window.confirm("Você realmente deseja excluir este cliente?");
-    
+
     if (!confirmDelete) {
-        return; // Se o usuário cancelar, a função para aqui
+      return; // Se o usuário cancelar, a função para aqui
     }
 
     console.log('Tentando deletar o pedido com ID:', id);
 
     try {
-        const response = await axios.delete(`http://localhost:5000/api/pedidos/${id}`);
-        setOrders(orders.filter(order => order._id !== id)); // Atualiza a lista de pedidos
+      const response = await axios.delete(`${import.meta.env.VITE_API_BASE_URL}/api/pedidos/${id}`);
+      setOrders(orders.filter(order => order._id !== id)); // Atualiza a lista de pedidos
     } catch (error) {
-        console.error('Erro ao deletar o pedido:', error);
-        alert('Erro ao deletar o pedido. Por favor, tente novamente.');
+      console.error('Erro ao deletar o pedido:', error);
+      alert('Erro ao deletar o pedido. Por favor, tente novamente.');
     }
-};
+  };
 
 
   const handleStatusChange = (id: string, newStatus: OrderStatus) => {
-    setOrders(orders.map(order => 
-      order._id === id ? { ...order, status: newStatus } : order
-    ));
+    setOrders(prevOrders =>
+      prevOrders.map(order =>
+        order._id === id ? { ...order, status: newStatus } : order
+      )
+    );
   };
 
   const fetchTrackingInfo = async (codigo: string, orderId: string) => {
@@ -158,15 +181,15 @@ function App() {
           }
         }
       );
-  
+
       console.log('Resposta da API:', response.data);
-  
+
       if (response.data.length > 0 && response.data[0].eventos && Array.isArray(response.data[0].eventos)) {
         const eventos = response.data[0].eventos;
-  
+
         const formattedEvents = eventos.map((evento: any) => {
           let dataFormatada = 'Data não disponível';
-  
+
           if (evento.dataEvento) {
             try {
               const parsedDate = parse(evento.dataEvento, 'dd/MM/yyyy HH:mm:ss', new Date(), { locale: ptBR });
@@ -175,14 +198,14 @@ function App() {
               console.error('Erro ao converter data:', evento.dataEvento, error);
             }
           }
-  
+
           return {
             descricao: evento.descricaoEvento,
             municipio: evento.municipio || 'N/A',
             data: dataFormatada,
           };
         });
-  
+
         console.log('Eventos formatados:', formattedEvents);
         setTrackingInfo(formattedEvents);
         setSelectedOrderId(orderId);
@@ -202,25 +225,139 @@ function App() {
       setIsTrackingOpen(false);
     }
   };
-  
-  const filteredOrders = orders.filter(order => {
-    const dateMatch = selectedDate ? order.data === selectedDate : true;
-    const statusMatch = selectedStatus ? order.status === selectedStatus : true;
-    return dateMatch && statusMatch;
-  });
 
+  const checkDeliveryStatus = async () => {
+    const updatedOrders = [...orders]; // Cria uma cópia da lista de pedidos
+
+    for (let i = 0; i < updatedOrders.length; i++) {
+      const order = updatedOrders[i];
+
+      if (order.codigoRastreio) {
+        try {
+          const response = await axios.post(
+            '/api/correios',
+            {
+              objetos: [order.codigoRastreio]
+            },
+            {
+              headers: {
+                'Authorization': 'Basic NTM0NDk5OTUwMDAxMzk6R1VscDVkcU1wVkRkWmNRT05yeWVuWXZvSVpyUmdRZXVoRWVGU2pxVg==', // Seu token
+                'Content-Type': 'application/json',
+              }
+            }
+          );
+
+          console.log('Resposta da API:', response.data);
+
+          if (response.data.length > 0 && response.data[0].eventos && Array.isArray(response.data[0].eventos)) {
+            const eventos: Evento[] = response.data[0].eventos; // Aqui definimos que eventos é um array de Evento
+            const deliveredEvent = eventos.find((evento: Evento) => evento.descricaoEvento === 'Entregue'); // Agora 'evento' tem o tipo Evento
+
+            if (deliveredEvent && order.status !== 'entregue') {
+              const notification = {
+                orderId: order._id,
+                message: `Pedido ${order.nome} foi entregue.`,
+                read: false
+              };
+
+              try {
+                const notificationResponse = await axios.get(`${import.meta.env.REACT_APP_API_BASE_URL}/api/notifications/${order._id}`);
+
+                if (notificationResponse.data) {
+                  console.log('Notificação já existe para esse pedido');
+                  continue;
+                }
+              } catch (error) {
+                console.log('Criando nova notificação para pedido', order._id);
+                await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/notifications`, notification);
+              }
+
+              updatedOrders[i] = { ...order, status: 'entregue' };
+
+              setNotifications((prevNotifications) => {
+                const isNotificationExist = prevNotifications.some((notif) => notif.orderId === notification.orderId);
+                if (!isNotificationExist) {
+                  return [...prevNotifications, notification];
+                } else {
+                  return prevNotifications;
+                }
+              });
+            }
+          } else {
+            console.warn('Nenhum dado de rastreio encontrado:', order.codigoRastreio);
+          }
+        } catch (error) {
+          console.error('Erro ao verificar status de entrega:', error);
+        }
+      }
+    }
+
+    setOrders(updatedOrders);
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/notifications`);
+      setNotifications(response.data);
+    } catch (error) {
+      console.error('Erro ao buscar notificações:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications(); // Busca notificações ao carregar a página
+    checkDeliveryStatus(); // Chama a função imediatamente ao carregar a página
+
+    const interval = setInterval(() => {
+      checkDeliveryStatus(); // Chama a função a cada 30 minutos
+    }, 30 * 60 * 1000); // 30 minutos em milissegundos
+
+    return () => clearInterval(interval); 
+  }, []); 
+
+  const markAsRead = async (orderId: string) => {
+    try {
+      console.log("Order ID sendo enviado para a API:", orderId);
+  
+      // Requisição para marcar como lida utilizando o orderId (assumindo que seja um ObjectId válido)
+      const response = await axios.put(
+        `${import.meta.env.VITE_API_BASE_URL}/api/notifications/${orderId}`,
+        { read: true }
+      );
+  
+      // Atualização local das notificações, comparando pelo orderId
+      setNotifications(prev => 
+        prev.map(notification => {
+          const notificationWithOrderId = notification as Notification & { orderId: string };
+          return notificationWithOrderId.orderId === orderId
+            ? { ...notificationWithOrderId, read: true }
+            : notification;
+        })
+      );
+  
+      console.log("Notificação marcada como lida:", response.data);
+    } catch (error) {
+      console.error("Erro ao tentar marcar a notificação como lida:", error);
+    }
+  };
+  
+  
   const getStatusClass = (status: OrderStatus) => {
     switch (status) {
       case 'nao_pago':
-        return 'text-red-500'; 
+        return 'text-red-500';
       case 'pago':
-        return 'text-green-500'; 
+        return 'text-green-500';
       case 'agendado':
-        return 'text-blue-500'; 
+        return 'text-blue-500';
       case 'pre_postagem':
-        return 'text-blue-400'; 
+        return 'text-blue-400';
       case 'retirar':
-        return 'text-yellow-500'; 
+        return 'text-yellow-500';
+      case 'postado':
+        return 'text-cyan-500';
+      case 'entregue':
+        return 'text-green-400';
       default:
         return '';
     }
@@ -232,7 +369,17 @@ function App() {
         <div className="mb-6 text-center">
           <img src={logo} alt="Logo" className="mx-auto h-40" />
         </div>
-
+        <div className="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold">Notificações</h2>
+          <div className="mt-4">
+            {Array.isArray(notifications) && notifications.map(notification => (
+              <div key={notification.orderId} className={`p-2 ${notification.read ? 'bg-gray-700' : 'bg-yellow-500'} rounded-md mb-2`}>
+                <p>{notification.message}</p>
+                <button onClick={() => markAsRead(notification.orderId)} className="text-blue-500">Marcar como lido</button>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
           <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
             <div>
@@ -326,6 +473,8 @@ function App() {
                 <option value="agendado">Agendado</option>
                 <option value="pre_postagem">Pré Postagem</option>
                 <option value="retirar">Retirar</option>
+                <option value="postado">Postado</option>
+                <option value="entregue">Entregue</option>
               </select>
             </div>
             <div className="col-span-2">
@@ -341,26 +490,35 @@ function App() {
 
         <div className="bg-gray-800 rounded-lg shadow-md p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold">Pedidos Cadastrados</h2>
-            <div className="flex gap-4">
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value as OrderStatus | '')}
-                className="rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              >
-                <option value="">Todos os Status</option>
-                <option value="nao_pago">Não Pago</option>
-                <option value="pago">Pago</option>
-                <option value="agendado">Agendado</option>
-                <option value="pre_postagem">Pré Postagem</option>
-                <option value="retirar">Retirar</option>
-              </select>
+          <h2 className="text-xl font-semibold">Filtrar Pedidos</h2>
+          <div className="flex gap-4 mb-6">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value as OrderStatus)}
+              className="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="">Selecione Status</option>
+              <option value="nao_pago">Não Pago</option>
+              <option value="pago">Pago</option>
+              <option value="agendado">Agendado</option>
+              <option value="pre_postagem">Pré Postagem</option>
+              <option value="retirar">Retirar</option>
+              <option value="postado">Postado</option>
+              <option value="entregue">Entregue</option>
+            </select>
+            <input
+              type="text"
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+              placeholder="Buscar por nome"
+              className="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
             </div>
           </div>
 
@@ -381,47 +539,50 @@ function App() {
                 {filteredOrders.map((order) => (
                   <tr key={order._id} className="hover:bg-gray-700">
                     <td className="px-6 py-4 whitespace-nowrap">
-  <div className="flex items-center space-x-2">
-    {order.codigoRastreio && (
-      <Package
-        className="w-4 h-4 cursor-pointer text-blue-400 hover:text-blue-600"
-        onClick={() => fetchTrackingInfo(order.codigoRastreio, order._id)} // Passa o código de rastreio correto
-      />
-    )}
-    <span>{order.nome}</span>
-    <MapPin
-      className="w-4 h-4 cursor-pointer text-gray-400 hover:text-gray-200"
-      onClick={() => setSelectedAddress(order.endereco)}
-    />
-  </div>
-</td>
+                      <div className="flex items-center space-x-2">
+                        {order.codigoRastreio && (
+                          <Package
+                            className="w-4 h-4 cursor-pointer text-blue-400 hover:text-blue-600"
+                            onClick={() => fetchTrackingInfo(order.codigoRastreio, order._id)}
+                          />
+                        )}
+                        <span>{order.nome}</span>
+                        <MapPin
+                          className="w-4 h-4 cursor-pointer text-gray-400 hover:text-gray-200"
+                          onClick={() => setSelectedAddress(order.endereco)}
+                        />
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">{order.telefone}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.valor)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">{order.unidades}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {format(new Date(order.data), 'dd/MM/yyyy', { locale: ptBR })} {/* Formatação correta */}
+                      {format(new Date(order.data + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={getStatusClass(order.status)}>
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1).replace(/_/g, ' ')}
-                      </span>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={getStatusClass(order.status)}>
+                          {order.status.charAt(0).toUpperCase() + order.status.slice(1).replace(/_/g, ' ')}
+                          {order.status === 'entregue' && <Check className="inline-block ml-2 text-green-500" />}
+                        </span>
+                      </td>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-  <button
-    onClick={() => handleEdit(order)} 
-    className="text-blue-600 hover:text-blue-400"
-  >
-    Editar
-  </button>
-  <button
-    onClick={() => handleDelete(order._id)}
-    className="text-red-600 hover:text-red-400 ml-2"
-  >
-    <Trash2 className="w-5 h-5" />
-  </button>
-</td>
+                      <button
+                        onClick={() => handleEdit(order)}
+                        className="text-blue-600 hover:text-blue-400"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(order._id)}
+                        className="text-red-600 hover:text-red-400 ml-2"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
